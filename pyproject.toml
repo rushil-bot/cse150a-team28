@@ -1,0 +1,15 @@
+[project]
+name = "av-gap"
+version = "0.1.0"
+description = "CSE 150A/250A gap acceptance on highway and roundabout scenarios"
+requires-python = ">=3.10"
+dependencies = [
+    "highway-env==1.12.1",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["av_gap*"]
