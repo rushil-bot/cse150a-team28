@@ -43,11 +43,42 @@ Episodes are seeded, so any crash can be replayed. Once a learner exists, swap `
 
 The simulator runs. Policies do not. `make_env` returns a `(5, 7)` observation: row 0 is the agent's car, and rows 1–4 are its four nearest neighbors. Columns are `presence`, `x`, `y`, `vx`, `vy`, `cos_h`, `sin_h`, in meters and m/s. Row 0 is in map coordinates. For neighbors, position and velocity are offsets from the agent's car, and `cos_h`, `sin_h` are the neighbor's own heading. Use `av_gap.envs.COL` to find a column by name. Actions are `{LANE_LEFT, IDLE, LANE_RIGHT, FASTER, SLOWER}`.
 
-`av_gap.discretize.encode` maps an observation to one of 135 states.
+`av_gap.discretize.encode` maps an observation to one of 135 states. See "States and bins" below for what that means and why we do it.
 
 A policy is a function from that observation to an action. Run it through `av_gap.rollout.run_episode` so return, episode length, and crash rate are computed the same way for every method. `scripts/random_baseline.py` is the baseline a learned policy should beat.
 
 Use `roundabout-v1`, not `roundabout-v0`. The older version is deprecated: background cars miss neighbors across road segments and crash too often.
+
+## States and bins
+
+Both of our methods learn by filling in a table with one row per situation. Q-learning stores how good each action looks; the model-based method stores counts of what happened next. Either way the table needs a finite list of situations.
+
+The simulator does not give us one. It reports things like "the nearest car is 13.72 m away, closing at 4.18 m/s," and those numbers are continuous, so the same values essentially never come up twice. Every row would be visited once and nothing would be learned.
+
+A **bin** is a bucket of nearby values, used so that similar situations count as the same situation. For the gap to the nearest car we use five:
+
+| Measured gap | Bin |
+|---|---|
+| nothing closing in | "no car closing" |
+| 3.1 m or 8.9 m | "under 10 m" |
+| 13.7 m | "10–20 m" |
+| 31.0 m | "20–40 m" |
+| 55.0 m | "40 m or more" |
+
+Whatever the agent learns at 3.1 m now also applies at 8.9 m. The cutoffs are the **bin edges**, and picking them is a trade-off. Too many bins and the table is huge with most rows rarely visited. Too few and genuinely different situations get lumped together: with one "under 40 m" bucket, a car 2 m away looks the same as one 39 m away.
+
+We bin four quantities and combine them:
+
+| Quantity | Bins |
+|---|---|
+| Agent speed | stopped, medium, fast |
+| Phase | approaching, on the ring, exiting |
+| Gap to the most dangerous car | the five above |
+| How fast that gap is closing | slow, medium, fast |
+
+That gives 3 × 3 × 5 × 3 = 135 combinations. `encode` returns which one the current observation falls into, as a single integer, and `n_states` is 135. Each learner's table then has 135 rows and 5 columns, one per action.
+
+The single integer is for the learners' convenience: they treat states as unrelated labels and never assume state 37 resembles state 38. For humans, `describe(state)` converts it back, for example `"medium, approaching, gap 10-20 m, closing fast"`. Run `python scripts/bin_coverage.py` to see which states actually come up and whether any bin is swallowing most of the steps.
 
 ## Repo structure
 

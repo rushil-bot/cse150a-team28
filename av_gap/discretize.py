@@ -1,8 +1,14 @@
 """Turn a roundabout observation into a state index for the tabular learners.
 
+Both learners keep a table with one row per situation, so they need a finite
+list of situations. The simulator gives continuous numbers instead, which would
+make almost every step unique and leave nothing to learn from. So we sort each
+measurement into a bucket, or bin, and treat nearby values as the same.
+
 The state is four binned quantities combined into one integer: how fast the
 agent is going, where it is in the roundabout, how far away the most dangerous
-car is, and how fast that gap is closing.
+car is, and how fast that gap is closing. `describe` converts an index back to
+readable text. See "States and bins" in the README for the longer version.
 """
 
 from __future__ import annotations
