@@ -33,6 +33,24 @@ REWARD_KEYS = (
     "lane_change_reward",
 )
 
+# Rows: 0 is the agent's car, 1-4 are the nearest neighbors.
+# Row 0 is in map coordinates. In rows 1-4, x, y, vx, vy are offsets from the
+# agent's car, and cos_h, sin_h are that neighbor's own map heading.
+# Units are meters and m/s.
+OBS_FEATURES = ("presence", "x", "y", "vx", "vy", "cos_h", "sin_h")
+OBS_CONFIG = {
+    "type": "Kinematics",
+    "vehicles_count": 5,
+    "features": list(OBS_FEATURES),
+    "absolute": False,
+    "normalize": False,
+    # The roundabout hides cars more than two car lengths behind along the agent's
+    # lane, which can drop circulating cars approaching the entry.
+    "see_behind": True,
+    "order": "sorted",
+}
+COL = {name: i for i, name in enumerate(OBS_FEATURES)}
+
 
 def make_env(
     scenario: str = "roundabout",
@@ -48,11 +66,12 @@ def make_env(
         known = ", ".join(SCENARIOS)
         raise KeyError(f"Unknown scenario {scenario!r}. Expected one of: {known}")
 
-    config = None
+    config = {"observation": dict(OBS_CONFIG)}
     if reward:
         unknown = set(reward) - set(REWARD_KEYS)
         if unknown:
             raise KeyError(f"Unknown reward keys: {sorted(unknown)}")
-        config = dict(reward)
+        config.update(reward)
 
     return gym.make(SCENARIOS[scenario], config=config, render_mode=render_mode)
+

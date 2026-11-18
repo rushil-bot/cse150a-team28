@@ -7,11 +7,35 @@ CSE 150A/250A final project (Team 28). An agent has to enter and drive through a
 
 The submitted proposal is `Team 28 CSE150A_250A Project Proposal - Google Docs.pdf`. It also names `highway-v0`. The first version of this project covers only the roundabout. The highway is a stretch goal if time allows, and `make_env("highway")` still works for when we get there.
 
+## Quickstart
+
+```powershell
+git clone https://github.com/rushil-bot/cse150a-team28.git
+cd cse150a-team28
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+```
+
+On macOS or Linux, activate with `source .venv/bin/activate` instead. Python 3.10 or newer is required.
+
+Then try these:
+
+```powershell
+python scripts/watch.py            # watch the agent drive, in a window
+python scripts/watch.py 10         # watch 10 episodes instead of 3
+python testEnv.py                  # one step; prints the observation format
+python scripts/random_baseline.py  # 5 episodes; prints mean return and crash rate
+python -m pytest tests -q          # run the tests
+```
+
+Start with `scripts/watch.py`. The agent is the green car waiting at the south entry; the blue cars are circulating traffic. Every car is picking random actions right now, so expect crashes. Once a learner exists, swap `random_policy` for its trained policy in that script to watch what it actually does.
+
 ## What the code does today
 
-The simulator runs. Policies do not. The roundabout returns a `(5, 5)` kinematics observation (the agent's car plus four neighbors; features `presence`, `x`, `y`, `vx`, `vy`) and takes the actions `{LANE_LEFT, IDLE, LANE_RIGHT, FASTER, SLOWER}`.
+The simulator runs. Policies do not. `make_env` returns a `(5, 7)` observation: row 0 is the agent's car, and rows 1–4 are its four nearest neighbors. Columns are `presence`, `x`, `y`, `vx`, `vy`, `cos_h`, `sin_h`, in meters and m/s. Row 0 is in map coordinates. For neighbors, position and velocity are offsets from the agent's car, and `cos_h`, `sin_h` are the neighbor's own heading. Use `av_gap.envs.COL` to find a column by name. Actions are `{LANE_LEFT, IDLE, LANE_RIGHT, FASTER, SLOWER}`.
 
-That observation is about to change. Sub-issue 1.1 switches to neighbor positions measured from the agent's car, in meters and meters per second, and adds the agent's heading. The observation becomes `(5, 7)`. Do not hard-code the shape; read it from `env.observation_space`.
+`av_gap.discretize.encode` is currently a placeholder that returns 0 for every observation.
 
 A policy is a function from that observation to an action. Run it through `av_gap.rollout.run_episode` so return, episode length, and crash rate are computed the same way for every method. `scripts/random_baseline.py` is the baseline a learned policy should beat.
 
@@ -35,6 +59,13 @@ av_gap/                 shared library. New learning code should import this
 scripts/                command-line entry points
   smoke_test.py         same check as testEnv.py
   random_baseline.py    five random roundabout episodes
+  watch.py              play episodes in a window at real-time speed
+
+tests/                  run with `python -m pytest tests -q`
+  test_envs.py          observation format and reward overrides
+  test_discretize.py    the contract `encode` has to keep
+
+.github/workflows/      CI; runs the tests on every pull request
 ```
 
 Learned policies, the discretized state grid, and transition counts are not in the repo yet. Put them under `av_gap/` and call them from `scripts/`, using `run_episode` for evaluation.
@@ -50,16 +81,6 @@ Every learner and every experiment meets at these names. Change them only with t
 - `train(scenario, reward, step_budget, seed) -> policy` lives in both `av_gap/model_based.py` and `av_gap/q_learning.py`. Pass `"roundabout"` as the scenario. It calls `env.step` exactly `step_budget` times, and returns a policy that takes an observation and returns an action index from 0 to 4.
 - `av_gap.rollout.run_episode(env, policy, seed) -> dict` scores any policy. Every number in the results comes from it.
 - `make_env("roundabout", calibrated_traffic=True)`, added in sub-issue 4.3, builds the roundabout with background cars calibrated from rounD. Leaving the flag off gives HighwayEnv's default drivers.
-
-## Setup
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e .
-python testEnv.py
-python scripts/random_baseline.py
-```
 
 ## Evaluation notes
 
