@@ -29,13 +29,21 @@ python scripts/random_baseline.py  # 5 episodes; prints mean return and crash ra
 python -m pytest tests -q          # run the tests
 ```
 
-Start with `scripts/watch.py`. The agent is the green car waiting at the south entry; the blue cars are circulating traffic. Every car is picking random actions right now, so expect crashes. Once a learner exists, swap `random_policy` for its trained policy in that script to watch what it actually does.
+Start with `scripts/watch.py`. The agent is the green car waiting at the south entry; the blue cars are circulating traffic. Every car is picking random actions right now, so expect crashes. Each step prints the state and the action taken, so a crash can be explained rather than just watched:
+
+```
+   4  medium, on ring, gap >=40 m, closing fast             IDLE
+   5  medium, on ring, gap <10 m, closing medium            SLOWER
+  crashed after 6 decisions, return 4.50
+```
+
+Episodes are seeded, so any crash can be replayed. Once a learner exists, swap `random_policy` for its trained policy in that script to watch what it actually does.
 
 ## What the code does today
 
 The simulator runs. Policies do not. `make_env` returns a `(5, 7)` observation: row 0 is the agent's car, and rows 1–4 are its four nearest neighbors. Columns are `presence`, `x`, `y`, `vx`, `vy`, `cos_h`, `sin_h`, in meters and m/s. Row 0 is in map coordinates. For neighbors, position and velocity are offsets from the agent's car, and `cos_h`, `sin_h` are the neighbor's own heading. Use `av_gap.envs.COL` to find a column by name. Actions are `{LANE_LEFT, IDLE, LANE_RIGHT, FASTER, SLOWER}`.
 
-`av_gap.discretize.encode` is currently a placeholder that returns 0 for every observation.
+`av_gap.discretize.encode` maps an observation to one of 135 states.
 
 A policy is a function from that observation to an action. Run it through `av_gap.rollout.run_episode` so return, episode length, and crash rate are computed the same way for every method. `scripts/random_baseline.py` is the baseline a learned policy should beat.
 
@@ -54,16 +62,18 @@ av_gap/                 shared library. New learning code should import this
   envs.py               make_env(scenario="roundabout", reward=...). Reward keys
                         override collision_reward, high_speed_reward,
                         right_lane_reward, and lane_change_reward.
+  discretize.py         encode, n_states, describe, nearest_threat
   rollout.py            random_policy and run_episode
 
 scripts/                command-line entry points
   smoke_test.py         same check as testEnv.py
   random_baseline.py    five random roundabout episodes
-  watch.py              play episodes in a window at real-time speed
+  watch.py              play episodes in a window, printing state and action
+  bin_coverage.py       how often each state bin is used; for tuning the edges
 
 tests/                  run with `python -m pytest tests -q`
   test_envs.py          observation format and reward overrides
-  test_discretize.py    the contract `encode` has to keep
+  test_discretize.py    the `encode` contract and what each bin means
 
 .github/workflows/      CI; runs the tests on every pull request
 ```
@@ -78,6 +88,8 @@ Every learner and every experiment meets at these names. Change them only with t
 
 - `av_gap.discretize.encode(obs) -> int` turns the observation into a bin number in `[0, n_states)`. The same observation always gives the same bin.
 - `av_gap.discretize.n_states` is the total number of bins, used to size every table.
+- `av_gap.discretize.describe(state) -> str` turns a state index back into readable text.
+- `av_gap.discretize.nearest_threat(obs)` returns the soonest-contact neighbor as `(distance, closing speed, seconds)`. Issue 5.1 should use this for its safety measure rather than writing a second copy.
 - `train(scenario, reward, step_budget, seed) -> policy` lives in both `av_gap/model_based.py` and `av_gap/q_learning.py`. Pass `"roundabout"` as the scenario. It calls `env.step` exactly `step_budget` times, and returns a policy that takes an observation and returns an action index from 0 to 4.
 - `av_gap.rollout.run_episode(env, policy, seed) -> dict` scores any policy. Every number in the results comes from it.
 - `make_env("roundabout", calibrated_traffic=True)`, added in sub-issue 4.3, builds the roundabout with background cars calibrated from rounD. Leaving the flag off gives HighwayEnv's default drivers.

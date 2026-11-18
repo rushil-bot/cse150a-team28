@@ -1,10 +1,14 @@
 The work splits into five pieces that meet at a few shared functions listed in the README's "Shared contract." The detailed sub-tasks live in the GitHub issues; this file is the one-page overview. The first version covers only the roundabout (`roundabout-v1`). The highway is a stretch goal.
 
-## 1. State discretization
+## 1. State discretization (done)
 
-Own `av_gap/discretize.py`. First pin one observation config in `make_env`: neighbor positions measured from the agent's car, in real units, plus the agent's heading, giving a `(5, 7)` observation. Then turn that into a few bins the proposal already names: gap to the conflicting or leading car, relative speed, and how crowded the ring is near the entry. Empty neighbor rows (`presence == 0`) go into their own bin.
+`av_gap/discretize.py`. `make_env` pins one observation config: neighbor positions measured from the agent's car, in real units, plus the agent's heading, giving a `(5, 7)` observation. `encode` turns that into one of 135 states, built from four binned quantities: the agent's speed, its phase (approaching, on the ring, or exiting), the gap to the most dangerous car, and how fast that gap is closing.
 
-Done when `encode` is deterministic and `n_states` is small enough for a table (thousands, not millions). Publish the function signature on the first day so tasks 2 and 3 can call a stub while the bins are still being tuned.
+"Most dangerous" means shortest time to contact. `nearest_threat` computes it and skips empty neighbor rows (`presence == 0`), which must not be read as a car at zero distance. A separate gap bin means "no car closing."
+
+The original plan had a crowding bin instead of phase. It was dropped because the roundabout spawns only four background cars, so all four neighbor slots are filled on nearly every step and the bin carried no information.
+
+Retune the edges with `scripts/bin_coverage.py` if a later change makes one bin dominate.
 
 ## 2. Model-based learning
 
@@ -26,8 +30,8 @@ Done when `make_env("roundabout", calibrated_traffic=True)` builds cars with tho
 
 ## 5. Experiments and baselines
 
-Own `scripts/evaluate.py` and extend `run_episode` with minimum time-to-collision. Call task 2 and task 3 with the same list of step budgets and plot return and crash rate against steps. On the same axes, include the random policy already in `scripts/random_baseline.py` and an agent car driven by HighwayEnv's own IDM driver. Sweep `collision_reward` against `high_speed_reward`. Run the final policies for 500 seeds and report crash rate, minimum time-to-collision, and progress, with default and calibrated traffic.
+Own `scripts/evaluate.py` and extend `run_episode` with minimum time-to-collision, reusing `nearest_threat` from `av_gap/discretize.py` rather than writing a second copy. Call task 2 and task 3 with the same list of step budgets and plot return and crash rate against steps. On the same axes, include the random policy already in `scripts/random_baseline.py` and an agent car driven by HighwayEnv's own IDM driver. Sweep `collision_reward` against `high_speed_reward`. Run the final policies for 500 seeds and report crash rate, minimum time-to-collision, and progress, with default and calibrated traffic.
 
 Done when one command reproduces the learning curves, the weight sweep, and the 500-seed table on the roundabout.
 
-Tasks 1, 4, and 5's baselines can start immediately. Tasks 2 and 3 start as soon as the `encode` stub exists. The calibrated-traffic rows of the final table wait on task 4; the default-traffic rows do not.
+Task 1 is done, so tasks 2, 3, 4, and task 5's baselines can all start now. The learning curves and the weight sweep in task 5 wait on tasks 2 and 3. The calibrated-traffic rows of the final table wait on task 4; the default-traffic rows do not.
