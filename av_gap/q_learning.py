@@ -7,6 +7,7 @@ It never counts transitions, so no model of what happens next is built.
 import numpy as np
 
 from av_gap.discretize import encode, n_states
+from av_gap.envs import make_env
 
 N_ACTIONS = 5
 ALPHA = 0.1   # learning rate: how far each experience moves the estimate
@@ -46,3 +47,34 @@ def update(Q, s, a, r, s_next, done, alpha=ALPHA, gamma=GAMMA):
     target = r if done else r + gamma * Q[s_next].max()
     # Step a fraction alpha of the way from the old estimate to the target
     Q[s, a] += alpha * (target - Q[s, a])
+
+
+def train(scenario="roundabout", reward=None, step_budget=5_000, seed=0):
+    """Run epsilon-greedy Q-learning for exactly step_budget env steps; return a greedy policy."""
+    env = make_env(scenario=scenario, reward=reward)
+    rng = np.random.default_rng(seed)
+    Q = make_q_table()
+    steps, episodes = 0, 0
+    try:
+        while steps < step_budget:
+            # Same per-episode seeding as model_based so both see the same resets
+            obs, _ = env.reset(seed=seed + episodes)
+            episodes += 1
+            s, done = encode(obs), False
+            while not done and steps < step_budget:
+                a = select_action(Q, s, epsilon_at(steps, step_budget), rng)
+                obs, r, terminated, truncated, _ = env.step(a)
+                steps += 1
+                s_next = encode(obs)
+                update(Q, s, a, float(r), s_next, terminated)  # crash only, not time-out
+                s, done = s_next, terminated or truncated
+    finally:
+        env.close()
+    # Both methods must get exactly the same amount of experience
+    assert steps == step_budget
+
+    def policy(obs):
+        """Greedy: highest-value action for this bin; no exploration, no rng."""
+        return int(Q[encode(obs)].argmax())
+
+    return policy

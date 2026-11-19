@@ -78,3 +78,41 @@ def test_select_action_same_seed_same_actions():
         rng = np.random.default_rng(7)
         runs.append([select_action(Q, 0, 0.5, rng) for _ in range(50)])
     assert runs[0] == runs[1]
+
+
+def _counting_make_env(counter):
+    """Return a make_env replacement whose env counts step calls in counter[0]."""
+    from av_gap.envs import make_env as real
+
+    def factory(*args, **kwargs):
+        env = real(*args, **kwargs)
+        orig = env.step
+
+        def step(a):
+            counter[0] += 1
+            return orig(a)
+
+        env.step = step
+        return env
+
+    return factory
+
+
+@pytest.mark.parametrize("budget", [30, 47])
+def test_train_step_count_equals_budget(monkeypatch, budget):
+    """env.step is called exactly step_budget times, even if cut mid-episode."""
+    import av_gap.q_learning as ql
+    counter = [0]
+    monkeypatch.setattr(ql, "make_env", _counting_make_env(counter))
+    ql.train(step_budget=budget)
+    assert counter[0] == budget
+
+
+def test_train_policy_valid_and_deterministic():
+    """Policy returns an int in 0..4 and gives the same action every call."""
+    from av_gap.envs import make_env
+    from av_gap.q_learning import train
+    policy = train(step_budget=30)
+    obs, _ = make_env("roundabout").reset(seed=0)
+    acts = {policy(obs) for _ in range(20)}
+    assert len(acts) == 1 and acts.pop() in range(5)
