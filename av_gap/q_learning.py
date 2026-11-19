@@ -11,6 +11,23 @@ from av_gap.discretize import encode, n_states
 N_ACTIONS = 5
 ALPHA = 0.1   # learning rate: how far each experience moves the estimate
 GAMMA = 0.95  # discount: how much the next bin's value counts (matches model_based)
+EPS_START = 1.0  # first step: almost all actions are random
+EPS_END = 0.05   # end of budget: mostly greedy, a little exploration stays
+
+
+def epsilon_at(step, total_steps):
+    """Return epsilon at `step`: falls linearly from EPS_START to EPS_END over total_steps, then holds."""
+    frac = min(step / max(total_steps, 1), 1.0)
+    return EPS_START + frac * (EPS_END - EPS_START)
+
+
+def select_action(Q, s, eps, rng):
+    """Epsilon-greedy: random action with prob eps, else the best action in Q[s]."""
+    if rng.random() < eps:
+        return int(rng.integers(N_ACTIONS))
+    # Break ties at random so an all-zero row doesn't always pick action 0
+    best = np.flatnonzero(Q[s] == Q[s].max())
+    return int(rng.choice(best))
 
 
 def make_q_table():

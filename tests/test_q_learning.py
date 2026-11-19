@@ -39,3 +39,42 @@ def test_done_drops_lookahead():
     update(Q, s, a, r, s_next, done=True, alpha=alpha)
 
     assert Q[s, a] == pytest.approx(1.0 + alpha * (r - 1.0))
+
+
+def test_epsilon_endpoints_and_hold():
+    """Epsilon starts at EPS_START, ends at EPS_END, and stays there past the budget."""
+    from av_gap.q_learning import EPS_END, EPS_START, epsilon_at
+    assert epsilon_at(0, 100) == EPS_START
+    assert epsilon_at(100, 100) == pytest.approx(EPS_END)
+    assert epsilon_at(500, 100) == pytest.approx(EPS_END)
+
+
+def test_epsilon_falls():
+    """Epsilon never rises and ends far below where it started."""
+    from av_gap.q_learning import epsilon_at
+    vals = [epsilon_at(t, 100) for t in range(0, 101, 10)]
+    assert all(a >= b for a, b in zip(vals, vals[1:]))
+    assert vals[0] - vals[-1] > 0.9
+
+
+def test_select_action_greedy_and_random():
+    """eps=0 picks the argmax; eps=1 reaches every action."""
+    import numpy as np
+    from av_gap.q_learning import select_action
+    Q = make_q_table()
+    Q[0] = [0, 0, 3.0, 0, 0]
+    rng = np.random.default_rng(0)
+    assert select_action(Q, 0, 0.0, rng) == 2
+    assert {select_action(Q, 0, 1.0, rng) for _ in range(300)} == {0, 1, 2, 3, 4}
+
+
+def test_select_action_same_seed_same_actions():
+    """Two RNGs with the same seed give identical action sequences."""
+    import numpy as np
+    from av_gap.q_learning import select_action
+    Q = make_q_table()
+    runs = []
+    for _ in range(2):
+        rng = np.random.default_rng(7)
+        runs.append([select_action(Q, 0, 0.5, rng) for _ in range(50)])
+    assert runs[0] == runs[1]
