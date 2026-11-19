@@ -1,4 +1,4 @@
-"""Checks on the Q-table and the single Q-learning update (sub-issue 3.1)."""
+"""Checks on the Q-table, the single Q-learning update (sub-issue 3.1), and a budget sanity check."""
 
 import pytest
 
@@ -116,3 +116,30 @@ def test_train_policy_valid_and_deterministic():
     obs, _ = make_env("roundabout").reset(seed=0)
     acts = {policy(obs) for _ in range(20)}
     assert len(acts) == 1 and acts.pop() in range(5)
+
+
+def test_more_budget_does_not_hurt():
+    """Average return with a large budget is at least as high as with a small one.
+
+    Averages over several training seeds and eval seeds, because a single
+    training run is noisy at these small budgets.
+    """
+    import numpy as np
+    from av_gap.envs import make_env
+    from av_gap.q_learning import train
+    from av_gap.rollout import run_episode
+
+    small, large = 50, 1000           # far apart so the gap beats the noise
+    train_seeds = [0, 1, 2]
+    eval_seeds = range(1000, 1005)    # held out from the training resets (seed + episode)
+    env = make_env("roundabout")
+
+    def avg_return(budget):
+        """Mean run_episode return over all training seeds and eval seeds."""
+        rets = []
+        for ts in train_seeds:
+            policy = train(step_budget=budget, seed=ts)
+            rets += [run_episode(env, policy, s)["return"] for s in eval_seeds]
+        return np.mean(rets)
+
+    assert avg_return(large) >= avg_return(small)
