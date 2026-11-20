@@ -26,6 +26,7 @@ python scripts/watch.py            # watch the agent drive, in a window
 python scripts/watch.py 10         # watch 10 episodes instead of 3
 python testEnv.py                  # one step; prints the observation format
 python scripts/random_baseline.py  # 5 episodes; prints mean return and crash rate
+python scripts/evaluate.py         # random vs. IDM baseline, 20 episodes each
 python -m pytest tests -q          # run the tests
 ```
 
@@ -94,17 +95,20 @@ av_gap/                 shared library. New learning code should import this
                         override collision_reward, high_speed_reward,
                         right_lane_reward, and lane_change_reward.
   discretize.py         encode, n_states, describe, nearest_threat
-  rollout.py            random_policy and run_episode
+  rollout.py            run_episode, time_to_collision, and the random and
+                        IDM baselines (random_policy, IDMDriven + idm_policy)
 
 scripts/                command-line entry points
   smoke_test.py         same check as testEnv.py
   random_baseline.py    five random roundabout episodes
+  evaluate.py           random vs. IDM baseline: return, crash rate, min TTC
   watch.py              play episodes in a window, printing state and action
   bin_coverage.py       how often each state bin is used; for tuning the edges
 
 tests/                  run with `python -m pytest tests -q`
   test_envs.py          observation format and reward overrides
   test_discretize.py    the `encode` contract and what each bin means
+  test_rollout.py       min_ttc, time_to_collision, and the IDM baseline
 
 .github/workflows/      CI; runs the tests on every pull request
 ```
@@ -122,7 +126,7 @@ Every learner and every experiment meets at these names. Change them only with t
 - `av_gap.discretize.describe(state) -> str` turns a state index back into readable text.
 - `av_gap.discretize.nearest_threat(obs)` returns the soonest-contact neighbor as `(distance, closing speed, seconds)`. Issue 5.1 should use this for its safety measure rather than writing a second copy.
 - `train(scenario, reward, step_budget, seed) -> policy` lives in both `av_gap/model_based.py` and `av_gap/q_learning.py`. Pass `"roundabout"` as the scenario. It calls `env.step` exactly `step_budget` times, and returns a policy that takes an observation and returns an action index from 0 to 4.
-- `av_gap.rollout.run_episode(env, policy, seed) -> dict` scores any policy. Every number in the results comes from it.
+- `av_gap.rollout.run_episode(env, policy, seed) -> dict` scores any policy, returning `return`, `length`, `crashed`, and `min_ttc` (smallest time-to-collision in seconds, infinity if nothing ever closed in). Every number in the results comes from it.
 - `make_env("roundabout", calibrated_traffic=True)`, added in sub-issue 4.3, builds the roundabout with background cars calibrated from rounD. Leaving the flag off gives HighwayEnv's default drivers.
 
 ## Evaluation notes

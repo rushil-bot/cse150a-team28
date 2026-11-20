@@ -144,7 +144,7 @@ def test_train_contract_and_reward_override(method):
         assert 0 <= action < 5
 
         result = run_episode(env, policy, seed=1)
-        assert set(result.keys()) == {"return", "length", "crashed"}
+        assert {"return", "length", "crashed"} <= set(result.keys())
         assert result["length"] >= 1
     finally:
         env.close()
