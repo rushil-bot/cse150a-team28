@@ -9,8 +9,9 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from av_gap.traffic import find_leaders, load_measurements
+from av_gap.traffic import find_leaders, load_location, load_measurements, summarize
 
+NAN = np.nan
 TRACK_COLUMNS = ["trackId", "frame", "xCenter", "yCenter", "heading",
                  "xVelocity", "yVelocity"]
 
@@ -45,9 +46,8 @@ def test_car_too_far_away_is_not_a_leader():
     assert leader[0] == -1
 
 
-@pytest.fixture
-def tiny_recording(tmp_path):
-    """One kept frame (0) and one skipped frame (1) of a made-up scene."""
+def write_recording(folder, prefix, location_id=0):
+    """Write a made-up recording: one kept frame (0) and one skipped frame (1)."""
     meta = pd.DataFrame({
         "trackId": [1, 2, 3, 4, 5, 6, 7, 8],
         "class": ["car", "car", "pedestrian", "van", "truck", "car", "car", "car"],
@@ -69,30 +69,66 @@ def tiny_recording(tmp_path):
         (8, 0, 6.0, 200.0, 0.0, 0.0, 0.0),
         (7, 1, 0.0, 200.0, 0.0, 0.0, 0.0),
         (8, 1, 6.0, 200.0, 0.0, 0.0, 0.0),
-        # Frame 1 is not a multiple of the frame step, so it is skipped
-        # (it still counts when deciding who is parked).
+        # Frame 1 is skipped (not a multiple of the frame step), but still
+        # counts when deciding who is parked.
         (1, 1, 0.0, 0.0, 0.0, 10.0, 0.0),
         (2, 1, 4.0, 0.0, 0.0, 10.0, 0.0),
         (4, 1, 0.5, 100.0, 0.0, 5.0, 0.0),
         (5, 1, 8.5, 100.0, 0.0, 5.0, 0.0),
     ]
-    tracks = pd.DataFrame(rows, columns=TRACK_COLUMNS)
+    pd.DataFrame(rows, columns=TRACK_COLUMNS).to_csv(
+        folder / f"{prefix}_tracks.csv", index=False)
+    meta.to_csv(folder / f"{prefix}_tracksMeta.csv", index=False)
+    pd.DataFrame({"recordingId": [int(prefix)], "locationId": [location_id]}).to_csv(
+        folder / f"{prefix}_recordingMeta.csv", index=False)
+    return folder / f"{prefix}_tracks.csv", folder / f"{prefix}_tracksMeta.csv"
 
-    tracks_csv = tmp_path / "00_tracks.csv"
-    meta_csv = tmp_path / "00_tracksMeta.csv"
-    tracks.to_csv(tracks_csv, index=False)
-    meta.to_csv(meta_csv, index=False)
-    return tracks_csv, meta_csv
+
+def test_load_measurements(tmp_path):
+    out = load_measurements(*write_recording(tmp_path, "00"), frame_step=5)
+
+    # Frame 0 rows, in order: car 1, car 2, van 4, truck 5, car 6.
+    # The pedestrian and the two parked cars are gone.
+    np.testing.assert_allclose(out["speed"], [10, 10, 0, 0, 10])
+    np.testing.assert_allclose(out["gap"], [10, NAN, 8, NAN, NAN])
+    np.testing.assert_allclose(out["leader_speed"], [10, NAN, 0, NAN, NAN])
 
 
-def test_load_measurements(tiny_recording):
-    out = load_measurements(*tiny_recording, frame_step=5)
+def test_load_location_keeps_only_that_location(tmp_path):
+    write_recording(tmp_path, "00", location_id=1)
+    write_recording(tmp_path, "02", location_id=0)
+    write_recording(tmp_path, "03", location_id=0)
 
-    # Only car 1 is moving with a leader: 10 m / 10 m/s = 1 s.
-    assert out["time_gaps"] == pytest.approx([1.0])
-    # Only van 4 is stopped with a leader, 8 m behind. The parked pair's
-    # 6 m gap must not appear.
-    assert out["jam_gaps"] == pytest.approx([8.0])
-    # Frame 0 keeps the five vehicles (cars, van, truck), not the pedestrian
-    # and not the two parked cars.
-    assert sorted(out["speeds"]) == pytest.approx([0, 0, 10, 10, 10])
+    out, recording_ids = load_location(tmp_path, location_id=0)
+    assert recording_ids == [2, 3]
+    assert len(out["speed"]) == 2 * 5  # five kept rows per recording
+
+
+def test_load_location_without_recordings_fails(tmp_path):
+    write_recording(tmp_path, "00", location_id=1)
+    with pytest.raises(ValueError):
+        load_location(tmp_path, location_id=0)
+
+
+def test_summarize():
+    measurements = {
+        "speed":        np.array([10.0, 10.0, 0.0, 0.0, 0.0, 12.0, 1.5, 3.0]),
+        "gap":          np.array([17.0, NAN, 7.0, 30.0, 9.0, NAN, 10.0, 45.0]),
+        "leader_speed": np.array([10.0, NAN, 0.0, 5.0, 0.0, NAN, 1.0, 3.0]),
+    }
+    out = summarize(measurements)
+
+    # Jam gaps: rows 2 and 4 (both cars stopped). Row 3 is stopped, but its
+    # leader is driving away, so it is not a queue.
+    assert out["jam_gap"]["n"] == 2
+    assert out["jam_gap"]["median"] == pytest.approx(8.0)
+
+    # Time gaps use (gap - jam gap) / speed. Row 0: (17 - 8) / 10 = 0.9 s.
+    # Row 6 is too slow to count; row 7 gives 12.3 s, over the 10 s limit.
+    assert out["time_gap"]["n"] == 1
+    assert out["time_gap"]["median"] == pytest.approx(0.9)
+
+    # Target speed: moving cars with no leader, rows 1 and 5.
+    assert out["target_speed"]["n"] == 2
+    assert out["target_speed"]["median"] == pytest.approx(11.0)
+    assert len(out["target_speed"]["percentiles"]) == 5
