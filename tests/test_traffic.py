@@ -9,7 +9,19 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from av_gap.traffic import find_leaders, load_location, load_measurements, summarize
+from highway_env.vehicle.behavior import IDMVehicle
+
+from av_gap.envs import make_env
+from av_gap.traffic import (
+    ROUND_JAM_GAP,
+    ROUND_TARGET_SPEED,
+    ROUND_TIME_GAP,
+    CalibratedVehicle,
+    find_leaders,
+    load_location,
+    load_measurements,
+    summarize,
+)
 
 NAN = np.nan
 TRACK_COLUMNS = ["trackId", "frame", "xCenter", "yCenter", "heading",
@@ -132,3 +144,44 @@ def test_summarize():
     assert out["target_speed"]["n"] == 2
     assert out["target_speed"]["median"] == pytest.approx(11.0)
     assert len(out["target_speed"]["percentiles"]) == 5
+
+
+def background_cars(**make_env_kwargs):
+    """Reset a roundabout and return its background cars (not the agent)."""
+    env = make_env("roundabout", **make_env_kwargs)
+    try:
+        env.reset(seed=0)
+        sim = env.unwrapped
+        return [v for v in sim.road.vehicles if v is not sim.vehicle]
+    finally:
+        env.close()
+
+
+def test_calibrated_traffic_uses_measured_values():
+    cars = background_cars(calibrated_traffic=True)
+    assert cars
+    for car in cars:
+        assert type(car) is CalibratedVehicle
+        assert car.DISTANCE_WANTED == ROUND_JAM_GAP
+        assert car.TIME_WANTED == ROUND_TIME_GAP
+        assert car.target_speed == ROUND_TARGET_SPEED
+
+
+def test_default_traffic_is_unchanged():
+    cars = background_cars()
+    assert cars
+    for car in cars:
+        assert type(car) is IDMVehicle
+        assert car.TIME_WANTED == 1.5
+        assert car.target_speed > 10  # spawn speed ~16 m/s, not the calibrated 7.95
+
+
+def test_calibrated_traffic_does_not_change_idm_vehicle():
+    background_cars(calibrated_traffic=True)
+    assert IDMVehicle.TIME_WANTED == 1.5
+    assert IDMVehicle.DISTANCE_WANTED == 10.0
+
+
+def test_calibrated_traffic_only_on_the_roundabout():
+    with pytest.raises(ValueError):
+        make_env("highway", calibrated_traffic=True)

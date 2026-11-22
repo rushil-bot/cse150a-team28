@@ -10,10 +10,14 @@ The typical values match the three IDM settings HighwayEnv uses:
 - time gap (TIME_WANTED): (gap - jam gap) / speed while following, because
   IDM spaces cars at jam gap + time gap * speed.
 - target speed: speed of moving cars with no leader (free flow).
+
+CalibratedVehicle applies the measured medians to HighwayEnv's background
+cars; make_env(calibrated_traffic=True) uses it.
 """
 
 from pathlib import Path
 import numpy as np
+from highway_env.vehicle.behavior import IDMVehicle
 
 # Trailers are left out: a towed trailer would look like a leader at ~0 m.
 VEHICLE_CLASSES = ("car", "truck", "bus", "van")
@@ -176,3 +180,27 @@ def summarize(measurements):
         "time_gap": stats(time_gaps),
         "target_speed": stats(free_speeds),
     }
+
+
+# Medians from summarize(load_location("round-dataset-v1/data", 0)): Neuweiler, recordings 02-23. 
+# Stored as constants so the dataset is not needed to run calibrated traffic.
+ROUND_JAM_GAP = 6.89  # in m, center to center
+ROUND_TIME_GAP = 1.30  # in s
+ROUND_TARGET_SPEED = 7.95  # in m/s
+
+
+class CalibratedVehicle(IDMVehicle):
+    """An IDM background car with settings measured from rounD.
+
+    A subclass, not edits to IDMVehicle, so default-traffic environments in
+    the same Python process keep HighwayEnv's original settings.
+    """
+
+    DISTANCE_WANTED = ROUND_JAM_GAP
+    TIME_WANTED = ROUND_TIME_GAP
+
+    def randomize_behavior(self):
+        # The roundabout calls this on every background car right after
+        # creating it. Its spawn speed (~16 m/s) would otherwise stay the target.
+        super().randomize_behavior()
+        self.target_speed = ROUND_TARGET_SPEED
