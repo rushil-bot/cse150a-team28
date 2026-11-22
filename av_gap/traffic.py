@@ -1,18 +1,6 @@
-"""Measure real driving from the rounD recordings.
+"""Measure real driving from rounD and apply it to the simulator's background cars.
 
-For each vehicle, the car ahead ("leader") is the nearest vehicle that is in
-front of it, inside a narrow cone around its heading, driving the same
-direction, and within MAX_LEADER_DIST. Gaps are center to center, the same
-way HighwayEnv measures them.
-
-The typical values match the three IDM settings HighwayEnv uses:
-- jam gap (DISTANCE_WANTED): gap when both the car and its leader are stopped.
-- time gap (TIME_WANTED): (gap - jam gap) / speed while following, because
-  IDM spaces cars at jam gap + time gap * speed.
-- target speed: speed of moving cars with no leader (free flow).
-
-CalibratedVehicle applies the measured medians to HighwayEnv's background
-cars; make_env(calibrated_traffic=True) uses it.
+Gaps are center to center, the same way HighwayEnv measures them.
 """
 
 from pathlib import Path
@@ -37,10 +25,11 @@ PERCENTILES = (10, 25, 50, 75, 90)
 
 
 def find_leaders(x, y, heading_deg):
-    """Find each vehicle's leader within one frame.
+    """Find each vehicle's leader (the car ahead) within one frame.
 
-    Returns `(leader, gap)`: `leader[i]` is the index of vehicle i's leader
-    (-1 if none) and `gap[i]` the center-to-center distance (NaN if none).
+    The leader is the nearest vehicle that is ahead, inside the cone, and
+    driving the same direction. Returns `(leader, gap)`: leader index (-1 if
+    none) and distance (NaN if none).
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -76,11 +65,10 @@ def find_leaders(x, y, heading_deg):
 
 
 def load_measurements(tracks_csv, tracks_meta_csv, frame_step=FRAME_STEP):
-    """Extract raw per-row measurements from one rounD recording.
+    """Read one rounD recording.
 
-    Returns a dict of aligned arrays, one entry per kept vehicle row:
-    "speed" (m/s), "gap" to the leader (m) and "leader_speed" (m/s).
-    The last two are NaN when the vehicle has no leader.
+    Returns arrays "speed", "gap" and "leader_speed", one entry per vehicle
+    per frame (gap and leader_speed are NaN when there is no leader).
     """
     import pandas as pd  # imported here so make_env never needs pandas
 
@@ -95,7 +83,7 @@ def load_measurements(tracks_csv, tracks_meta_csv, frame_step=FRAME_STEP):
     tracks = tracks[tracks["trackId"].isin(vehicle_ids)]
     tracks = tracks.assign(speed=np.hypot(tracks["xVelocity"], tracks["yVelocity"]))
 
-    # Drop parked cars (judged on the full track, before skipping frames).
+    # Drop parked cars.
     top_speed = tracks.groupby("trackId")["speed"].max()
     tracks = tracks[tracks["trackId"].isin(top_speed.index[top_speed > PARKED_MAX_SPEED])]
 
@@ -121,10 +109,7 @@ def load_measurements(tracks_csv, tracks_meta_csv, frame_step=FRAME_STEP):
 
 
 def load_location(data_dir, location_id=0):
-    """Run `load_measurements` on every recording at one location and combine.
-
-    Returns `(measurements, recording_ids)`. Location 0 is Neuweiler.
-    """
+    """Load every recording at one location (0 = Neuweiler) and combine them."""
     import pandas as pd
 
     data_dir = Path(data_dir)
@@ -148,10 +133,11 @@ def load_location(data_dir, location_id=0):
 
 
 def summarize(measurements):
-    """Turn raw measurements into typical values for the three IDM settings.
+    """Turn raw measurements into typical values (median and percentiles).
 
-    Returns {"jam_gap", "time_gap", "target_speed"}, each a dict with
-    "n", "median" and "percentiles" (values at PERCENTILES).
+    - jam gap: gap when the car and its leader are both stopped
+    - time gap: (gap - jam gap) / speed, matching IDM's jam gap + time gap * speed
+    - target speed: speed of moving cars with no leader
     """
     speed = measurements["speed"]
     gap = measurements["gap"]
@@ -182,25 +168,37 @@ def summarize(measurements):
     }
 
 
-# Medians from summarize(load_location("round-dataset-v1/data", 0)): Neuweiler, recordings 02-23. 
-# Stored as constants so the dataset is not needed to run calibrated traffic.
-ROUND_JAM_GAP = 6.89  # in m, center to center
+# From summarize(load_location("round-dataset-v1/data", 0)): Neuweiler, recordings 02-23.
+# Saved here so the dataset is not needed to run calibrated traffic.
+ROUND_JAM_GAP = 6.89  # in m
 ROUND_TIME_GAP = 1.30  # in s
 ROUND_TARGET_SPEED = 7.95  # in m/s
 
+LEVELS = [0.10, 0.25, 0.50, 0.75, 0.90]
+ROUND_JAM_GAP_PCTS = [5.80, 6.26, 6.89, 7.69, 9.74]  # in m
+ROUND_TIME_GAP_PCTS = [0.50, 0.80, 1.30, 2.17, 3.76]  # in s
+ROUND_TARGET_SPEED_PCTS = [5.58, 6.82, 7.95, 9.30, 11.02]  # in m/s
+
 
 class CalibratedVehicle(IDMVehicle):
-    """An IDM background car with settings measured from rounD.
+    """A background car with settings measured from rounD.
 
-    A subclass, not edits to IDMVehicle, so default-traffic environments in
-    the same Python process keep HighwayEnv's original settings.
+    A subclass, so the default IDMVehicle stays unchanged.
     """
 
     DISTANCE_WANTED = ROUND_JAM_GAP
     TIME_WANTED = ROUND_TIME_GAP
 
     def randomize_behavior(self):
-        # The roundabout calls this on every background car right after
-        # creating it. Its spawn speed (~16 m/s) would otherwise stay the target.
+        # Called on every background car when it is created. Each car draws
+        # its own values; the episode seed makes the draws repeatable.
         super().randomize_behavior()
-        self.target_speed = ROUND_TARGET_SPEED
+        rng = self.road.np_random
+        self.DISTANCE_WANTED = _draw(rng, ROUND_JAM_GAP_PCTS)
+        self.TIME_WANTED = _draw(rng, ROUND_TIME_GAP_PCTS)
+        self.target_speed = _draw(rng, ROUND_TARGET_SPEED_PCTS)
+
+
+def _draw(rng, values_at_levels):
+    """Draw one value from the measured spread (between p10 and p90)."""
+    return float(np.interp(rng.uniform(LEVELS[0], LEVELS[-1]), LEVELS, values_at_levels))

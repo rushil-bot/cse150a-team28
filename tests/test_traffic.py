@@ -14,8 +14,10 @@ from highway_env.vehicle.behavior import IDMVehicle
 from av_gap.envs import make_env
 from av_gap.traffic import (
     ROUND_JAM_GAP,
-    ROUND_TARGET_SPEED,
+    ROUND_JAM_GAP_PCTS,
+    ROUND_TARGET_SPEED_PCTS,
     ROUND_TIME_GAP,
+    ROUND_TIME_GAP_PCTS,
     CalibratedVehicle,
     find_leaders,
     load_location,
@@ -146,25 +148,50 @@ def test_summarize():
     assert len(out["target_speed"]["percentiles"]) == 5
 
 
-def background_cars(**make_env_kwargs):
+def background_cars(seed=0, **make_env_kwargs):
     """Reset a roundabout and return its background cars (not the agent)."""
     env = make_env("roundabout", **make_env_kwargs)
     try:
-        env.reset(seed=0)
+        env.reset(seed=seed)
         sim = env.unwrapped
         return [v for v in sim.road.vehicles if v is not sim.vehicle]
     finally:
         env.close()
 
 
-def test_calibrated_traffic_uses_measured_values():
+def car_settings(car):
+    return (car.DISTANCE_WANTED, car.TIME_WANTED, car.target_speed)
+
+
+def test_calibrated_cars_stay_within_measured_spread():
+    for seed in range(5):
+        cars = background_cars(seed, calibrated_traffic=True)
+        assert cars
+        for car in cars:
+            assert type(car) is CalibratedVehicle
+            jam, time_gap, speed = car_settings(car)
+            assert ROUND_JAM_GAP_PCTS[0] <= jam <= ROUND_JAM_GAP_PCTS[-1]
+            assert ROUND_TIME_GAP_PCTS[0] <= time_gap <= ROUND_TIME_GAP_PCTS[-1]
+            assert ROUND_TARGET_SPEED_PCTS[0] <= speed <= ROUND_TARGET_SPEED_PCTS[-1]
+
+
+def test_calibrated_cars_differ_from_each_other():
     cars = background_cars(calibrated_traffic=True)
-    assert cars
-    for car in cars:
-        assert type(car) is CalibratedVehicle
-        assert car.DISTANCE_WANTED == ROUND_JAM_GAP
-        assert car.TIME_WANTED == ROUND_TIME_GAP
-        assert car.target_speed == ROUND_TARGET_SPEED
+    assert len({car_settings(car) for car in cars}) == len(cars)
+
+
+def test_calibrated_cars_repeat_with_the_same_seed():
+    first = [car_settings(car) for car in background_cars(3, calibrated_traffic=True)]
+    again = [car_settings(car) for car in background_cars(3, calibrated_traffic=True)]
+    other = [car_settings(car) for car in background_cars(4, calibrated_traffic=True)]
+    assert first == again
+    assert first != other
+
+
+def test_per_car_draws_do_not_change_the_class():
+    background_cars(calibrated_traffic=True)
+    assert CalibratedVehicle.DISTANCE_WANTED == ROUND_JAM_GAP
+    assert CalibratedVehicle.TIME_WANTED == ROUND_TIME_GAP
 
 
 def test_default_traffic_is_unchanged():
