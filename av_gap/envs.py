@@ -56,11 +56,16 @@ def make_env(
     scenario: str = "roundabout",
     reward: dict | None = None,
     render_mode: str | None = None,
+    calibrated_traffic: bool = False,
 ):
     """Build one scenario.
 
     `reward` overrides HighwayEnv's reward weights, for example
     `{"collision_reward": -1, "high_speed_reward": 0.4}`.
+
+    `calibrated_traffic=True` makes the roundabout's background cars use
+    settings measured from rounD (see `av_gap/traffic.py`). The default keeps
+    HighwayEnv's built-in drivers.
     """
     if scenario not in SCENARIOS:
         known = ", ".join(SCENARIOS)
@@ -72,6 +77,11 @@ def make_env(
         if unknown:
             raise KeyError(f"Unknown reward keys: {sorted(unknown)}")
         config.update(reward)
+
+    if calibrated_traffic:
+        if scenario != "roundabout":
+            raise ValueError("calibrated_traffic is measured on roundabouts only")
+        config["other_vehicles_type"] = "av_gap.traffic.CalibratedVehicle"
 
     return gym.make(SCENARIOS[scenario], config=config, render_mode=render_mode)
 
