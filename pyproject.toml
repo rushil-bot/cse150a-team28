@@ -8,7 +8,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pandas>=2"]
 
 [build-system]
 requires = ["setuptools>=61"]
