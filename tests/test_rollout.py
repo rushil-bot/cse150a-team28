@@ -43,8 +43,45 @@ def test_run_episode_reports_min_ttc():
         result = run_episode(env, random_policy(env), seed=0)
     finally:
         env.close()
-    assert set(result) == {"return", "length", "crashed", "min_ttc"}
+    assert set(result) == {
+        "return",
+        "length",
+        "crashed",
+        "min_ttc",
+        "distance",
+        "avg_speed",
+        "decision_time",
+    }
     assert result["min_ttc"] >= 0
+    assert result["distance"] >= 0
+    assert result["avg_speed"] >= 0
+    assert result["decision_time"] > 0
+
+
+def test_distance_matches_the_simulator_position():
+    """Distance comes from observation row 0, which must be the true map position."""
+    env = make_env()
+    try:
+        obs, _info = env.reset(seed=3)
+        for _ in range(3):
+            obs, *_ = env.step(1)
+            assert obs[0, 1:3] == pytest.approx(env.unwrapped.vehicle.position, abs=1e-3)
+    finally:
+        env.close()
+
+
+def test_frozen_agent_covers_almost_no_distance():
+    """A car that only brakes should score far less distance than one that drives."""
+    slower = 4
+
+    def run(action):
+        env = make_env()
+        try:
+            return run_episode(env, lambda obs: action, seed=10_000)["distance"]
+        finally:
+            env.close()
+
+    assert run(slower) < run(1)
 
 
 def test_idm_wrapper_hands_the_agent_to_idm():
@@ -67,3 +104,15 @@ def test_idm_baseline_runs_a_full_episode():
     finally:
         env.close()
     assert result["length"] > 0
+    assert result["distance"] > 0
+
+
+def test_idm_reports_its_own_decision_time():
+    """IDM decides inside the simulator, so the wrapper must time those decisions."""
+    env = IDMDriven(make_env())
+    try:
+        env.reset(seed=0)
+        _obs, _r, _term, _trunc, info = env.step(idm_policy(None))
+    finally:
+        env.close()
+    assert info["decision_time"] > 0

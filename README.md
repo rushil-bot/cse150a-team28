@@ -27,6 +27,7 @@ python scripts/watch.py 10         # watch 10 episodes instead of 3
 python testEnv.py                  # one step; prints the observation format
 python scripts/random_baseline.py  # 5 episodes; prints mean return and crash rate
 python scripts/evaluate.py         # random vs. IDM baseline, 20 episodes each
+python scripts/evaluate.py --help  # evaluation experiments: table, sweep, curves
 python -m pytest tests -q          # run the tests
 ```
 
@@ -97,18 +98,23 @@ av_gap/                 shared library. New learning code should import this
   discretize.py         encode, n_states, describe, nearest_threat
   rollout.py            run_episode, time_to_collision, and the random and
                         IDM baselines (random_policy, IDMDriven + idm_policy)
+  evaluation.py         evaluation harness: train policies, score them in parallel,
+                        save drives to CSV, summarize with confidence intervals
+  plots.py              learning-curve and reward-sweep figures from saved drives
 
 scripts/                command-line entry points
   smoke_test.py         same check as testEnv.py
   random_baseline.py    five random roundabout episodes
-  evaluate.py           random vs. IDM baseline: return, crash rate, min TTC
+  evaluate.py           evaluation experiments: baselines, table, sweep, curves
+  plot.py               redraw figures and tables from results/*.csv
   watch.py              play episodes in a window, printing state and action
   bin_coverage.py       how often each state bin is used; for tuning the edges
 
 tests/                  run with `python -m pytest tests -q`
   test_envs.py          observation format and reward overrides
   test_discretize.py    the `encode` contract and what each bin means
-  test_rollout.py       min_ttc, time_to_collision, and the IDM baseline
+  test_rollout.py       run_episode metrics, time_to_collision, the IDM baseline
+  test_evaluation.py    seed separation, CSV round trip, summaries, a tiny run
 
 .github/workflows/      CI; runs the tests on every pull request
 ```
@@ -126,7 +132,11 @@ Every learner and every experiment meets at these names. Change them only with t
 - `av_gap.discretize.describe(state) -> str` turns a state index back into readable text.
 - `av_gap.discretize.nearest_threat(obs)` returns the soonest-contact neighbor as `(distance, closing speed, seconds)`. Issue 5.1 should use this for its safety measure rather than writing a second copy.
 - `train(scenario, reward, step_budget, seed) -> policy` lives in both `av_gap/model_based.py` and `av_gap/q_learning.py`. Pass `"roundabout"` as the scenario. It calls `env.step` exactly `step_budget` times, and returns a policy that takes an observation and returns an action index from 0 to 4.
-- `av_gap.rollout.run_episode(env, policy, seed) -> dict` scores any policy, returning `return`, `length`, `crashed`, and `min_ttc` (smallest time-to-collision in seconds, infinity if nothing ever closed in). Every number in the results comes from it.
+- `av_gap.rollout.run_episode(env, policy, seed) -> dict` scores any policy. Every number in the results comes from it. It returns:
+  - `return`, `length` (decisions), `crashed`;
+  - `min_ttc`: smallest time-to-collision in seconds, infinity if nothing ever closed in;
+  - `distance`: meters covered (the "progress" measure; a crash stops the count) and `avg_speed` in m/s;
+  - `decision_time`: mean wall-clock seconds per decision, excluding simulation. For learned and random policies this times `policy(obs)`; for the IDM baseline it times the IDM car's own decision, which happens inside the simulator.
 - `make_env("roundabout", calibrated_traffic=True)`, added in sub-issue 4.3, builds the roundabout with background cars calibrated from rounD. Leaving the flag off gives HighwayEnv's default drivers.
 
 ## Evaluation notes
@@ -136,6 +146,21 @@ The proposal is already submitted. These two points came back from the TA review
 Compare value iteration, policy iteration, and Q-learning at the **same number of environment steps**. Plot evaluation return and crash rate against steps consumed. Samples used to estimate P(s'|s, a) count. Planning compute does not. Q-learning updates count the same way. A single final score after unequal training is not a comparison.
 
 The frozen-robot effect is the collision weight overpowering the speed weight: the agent learns that waiting at the entry forever is safest. Sweep `collision_reward` against `high_speed_reward` via `make_env(..., reward=...)` and report crash rate against progress at each ratio. Keep the proposal's 500-seed safety numbers (crash rate, minimum time-to-collision) for the final policies.
+
+## Running the experiments
+
+`scripts/evaluate.py` runs every evaluation experiment and saves one row per drive to `results/` (gitignored, so results are regenerated rather than committed). `scripts/plot.py` redraws the figures and tables from those CSVs without rerunning anything.
+
+```powershell
+python scripts/evaluate.py table    
+python scripts/evaluate.py sweep    
+python scripts/evaluate.py curves   
+python scripts/evaluate.py table --train roundabout --eval roundabout roundabout-calibrated highway
+```
+
+- **Seeds.** Evaluation drives use seeds from 10,000 up. Training seeds start at 20,000, because both learners reset training episodes on `seed + episode_number`; this keeps every training reset clear of the evaluation seeds, and the harness refuses runs where they could overlap.
+- **Training scenarios.** Learners can train on `roundabout` or `highway`. Calibrated traffic is for evaluation only.
+- **Run time.** The roundabout runs at about 70 steps/s per process and the highway at about 7, so highway training and evaluation dominate. Jobs run in parallel (`--workers`, default: CPU cores minus 2). Try any command with tiny settings first, e.g. `table --budgets 200 --episodes 5`.
 
 ## Next work
 
