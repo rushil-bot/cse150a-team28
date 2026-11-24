@@ -1,9 +1,9 @@
-"""Run the Ta experiments. Each one saves its drives to results/ as CSV.
+"""Run the evaluation experiments. Each one saves its drives to results/ as CSV.
 
     python scripts/evaluate.py                 # quick baseline check (20 drives each)
-    python scripts/evaluate.py table           # 5.5: the 500-drive results table
-    python scripts/evaluate.py sweep           # 5.4: collision weight vs. progress
-    python scripts/evaluate.py curves          # 5.3: learning curves at equal budgets
+    python scripts/evaluate.py table           # the 500-drive results table
+    python scripts/evaluate.py sweep           # collision weight vs. progress
+    python scripts/evaluate.py curves          # learning curves at equal budgets
 
 `scripts/plot.py` redraws every figure and table from the saved CSVs without rerunning anything.
 
@@ -52,9 +52,8 @@ def _check_train_scenarios(names) -> None:
     for name in names:
         if name == "roundabout-calibrated":
             raise SystemExit(
-                "Training on calibrated traffic needs a calibrated_traffic option on "
-                "both train(...) functions (a shared-contract change). It is not "
-                "available yet; evaluate on roundabout-calibrated instead."
+                "Training on calibrated traffic is not supported; "
+                "evaluate on roundabout-calibrated instead."
             )
 
 
@@ -141,7 +140,7 @@ def main() -> None:
     _add_common(p, episodes=20, out="baselines.csv")
     p.set_defaults(func=cmd_baselines)
 
-    p = sub.add_parser("table", help="5.5: final results table")
+    p = sub.add_parser("table", help="final results table")
     _add_common(p, episodes=500, out="table.csv")
     p.add_argument("--train", nargs="+", default=["roundabout"],
                    choices=[*TRAIN_SCENARIOS, "roundabout-calibrated"],
@@ -154,7 +153,7 @@ def main() -> None:
     p.add_argument("--train-seed", type=int, default=TRAIN_SEEDS[0])
     p.set_defaults(func=cmd_table)
 
-    p = sub.add_parser("sweep", help="5.4: collision weight vs. progress")
+    p = sub.add_parser("sweep", help="collision weight vs. progress")
     _add_common(p, episodes=100, out="sweep.csv")
     p.add_argument("--collision", nargs="+", type=float, default=[-0.5, -1, -2, -5, -10],
                    help="collision_reward values to try (roundabout default: -1)")
@@ -166,7 +165,7 @@ def main() -> None:
                    help="training runs per weight, averaged in the plot")
     p.set_defaults(func=cmd_sweep)
 
-    p = sub.add_parser("curves", help="5.3: learning curves at equal step budgets")
+    p = sub.add_parser("curves", help="learning curves at equal step budgets")
     _add_common(p, episodes=20, out="curves.csv")
     p.add_argument("--budgets", nargs="+", type=int,
                    default=[2_000, 5_000, 10_000, 20_000, 50_000])

@@ -106,7 +106,7 @@ scripts/                command-line entry points
   smoke_test.py         same check as testEnv.py
   random_baseline.py    five random roundabout episodes
   evaluate.py           evaluation experiments: baselines, table, sweep, curves
-  plot.py       redraw figures and tables from results/*.csv
+  plot.py               redraw figures and tables from results/*.csv
   watch.py              play episodes in a window, printing state and action
   bin_coverage.py       how often each state bin is used; for tuning the edges
 
@@ -159,7 +159,7 @@ python scripts/evaluate.py table --train roundabout --eval roundabout roundabout
 ```
 
 - **Seeds.** Evaluation drives use seeds from 10,000 up. Training seeds start at 20,000, because both learners reset training episodes on `seed + episode_number`; this keeps every training reset clear of the evaluation seeds, and the harness refuses runs where they could overlap.
-- **Training scenarios.** Learners can train on `roundabout` or `highway`. Training on calibrated traffic would need a `calibrated_traffic` option on both `train(...)` functions, a shared-contract change that has not been agreed yet. Calibrated traffic is available for evaluation.
+- **Training scenarios.** Learners can train on `roundabout` or `highway`. Calibrated traffic is for evaluation only.
 - **Run time.** The roundabout runs at about 70 steps/s per process and the highway at about 7, so highway training and evaluation dominate. Jobs run in parallel (`--workers`, default: CPU cores minus 2). Try any command with tiny settings first, e.g. `table --budgets 200 --episodes 5`.
 
 ## Next work
@@ -168,4 +168,5 @@ python scripts/evaluate.py table --train roundabout --eval roundabout roundabout
 2. Estimate the transition model and solve it with value iteration and policy iteration.
 3. Train tabular Q-learning against that same step budget.
 4. Calibrate the roundabout's background traffic from rounD.
-5. Run the learning curves, the reward-weight sweep, and the 500-drive table. Done: learners train on the default roundabout and are evaluated on it, on calibrated traffic, and zero-shot on `highway-v0`.
+5. Run the learning curves, the reward-weight sweep, and the 500-drive table.
+6. If time allows, repeat on `highway-v0`.

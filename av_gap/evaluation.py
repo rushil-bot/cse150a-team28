@@ -11,8 +11,7 @@ built from the same pieces:
 - `write_rows` / `read_rows` save drives to CSV; `summarize` and `format_table`
   turn them into the numbers that go in the report.
 
-Seeds. Evaluation drives use seeds from `EVAL_FIRST_SEED` (10,000) up, as the
-report's table does. Both learners reset training episodes with
+Seeds. Evaluation drives use seeds from `EVAL_FIRST_SEED` (10,000) up. Both learners reset training episodes with
 `seed + episode_number`, so a run with training seed `s` and budget `b` resets
 on seeds inside `[s, s + b)`. Training seeds start at 20,000, which keeps that
 range clear of the evaluation seeds for any budget. `check_seeds` enforces it.
@@ -42,9 +41,8 @@ EVAL_SCENARIOS = {
     "highway": {"scenario": "highway"},
 }
 
-# Where a learner can be trained. Training on calibrated traffic would need a
-# `calibrated_traffic` option on both `train(...)` functions, which is a change
-# to the shared contract, so it is not offered until the team agrees to it.
+# Where a learner can be trained. Calibrated traffic is for evaluation only:
+# neither `train(...)` function takes a `calibrated_traffic` option.
 TRAIN_SCENARIOS = ("roundabout", "highway")
 
 BASELINES = ("random", "idm")
